@@ -1,0 +1,69 @@
+--=============================================================
+--  MOLIN HUB - KEY VERIFICATION SCRIPT
+--  Account:  CoolPlayer123
+--  Code:     VRF-A7K9-M2P4
+--  Run on the account that redeemed the key.
+--=============================================================
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+
+local VERIFY_CODE   = "VRF-A7K9-M2P4"
+local EXPECTED_USER = "CoolPlayer123"
+
+local PANTRY_ID  = "127763ae-2a3a-4b33-aa03-61ca0d9da173"
+local VERIFY_URL = "https://getpantry.cloud/apiv1/pantry/" .. PANTRY_ID .. "/basket/molin_verifications"
+
+local function httpRequest(opts)
+    local fn = (syn and syn.request) or (http and http.request) or http_request or request
+    if fn then
+        local ok, res = pcall(fn, opts)
+        if ok then return res end
+    end
+    return nil
+end
+
+-- 1. ACCOUNT CHECK: kick if wrong account
+if LocalPlayer.Name:lower() ~= EXPECTED_USER:lower() then
+    pcall(function()
+        LocalPlayer:Kick("Verification Failed: You are NOT the account that redeemed this key. Expected: " .. EXPECTED_USER)
+    end)
+    return
+end
+
+-- 2. FETCH EXISTING
+local existing = {}
+local getRes = httpRequest({ Url = VERIFY_URL, Method = "GET" })
+if getRes and getRes.Body then
+    local ok, data = pcall(HttpService.JSONDecode, HttpService, getRes.Body)
+    if ok and type(data) == "table" and type(data.confirmations) == "table" then
+        existing = data.confirmations
+    end
+end
+
+-- 3. MERGE (dedupe by code)
+local filtered = {}
+for _, c in ipairs(existing) do
+    if c.code ~= VERIFY_CODE then table.insert(filtered, c) end
+end
+table.insert(filtered, 1, {
+    code = VERIFY_CODE,
+    robloxUser = LocalPlayer.Name,
+    at = math.floor(os.time() * 1000),
+})
+while #filtered > 100 do table.remove(filtered) end
+
+-- 4. SUBMIT TO PANTRY
+local body = HttpService:JSONEncode({ confirmations = filtered })
+local putRes = httpRequest({
+    Url = VERIFY_URL,
+    Method = "PUT",
+    Headers = { ["Content-Type"] = "application/json" },
+    Body = body,
+})
+
+if putRes and (putRes.StatusCode == 200 or putRes.StatusCode == 204 or putRes.Success) then
+    print("[Molin Hub] Verified! Code VRF-A7K9-M2P4 submitted for CoolPlayer123")
+else
+    warn("[Molin Hub] Failed to submit verification. Try again.")
+end
